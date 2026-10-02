@@ -1,5 +1,7 @@
 import { samples, courses, courseGroups, splitEnglish, createLesson } from './content.js';
 import { generateLesson } from './ai.js';
+import { requestSpeech, voiceLabels } from './tts.js';
+import { bundledAudio } from './audio.js';
 
 const $ = selector => document.querySelector(selector); // 页面元素
 const icons = {
@@ -36,6 +38,9 @@ let requestController; // 生成请求
 let speechToken = 0; // 朗读任务标记
 let speaking = false; // 朗读状态
 let repeatTimer; // 循环间隔
+let speechRequest; // 语音生成请求
+const speechAudio = $('#voiceAudio'); // AI 示范播放器
+const speechCache = new Map(); // 当前会话语音缓存
 let recorder; // 录音器
 let recordToken = 0; // 录音任务标记
 let recordTimer; // 录音计时
@@ -130,6 +135,7 @@ function renderLesson() {
   $('#nextCourse').disabled = courseIndex === courses.length - 1;
   $('#coursePosition').textContent = `第 ${courseIndex + 1} / ${courses.length} 课`;
   updateRecording();
+  updateVoiceLabel();
 }
 
 // 切换当前练习
@@ -238,6 +244,15 @@ async function compose(event) {
 function stopSpeech() {
   speechToken++;
   clearTimeout(repeatTimer);
+  if (speechRequest) speechRequest.abort();
+  speechRequest = undefined;
+  speechAudio.onended = null;
+  speechAudio.onerror = null;
+  speechAudio.onplaying = null;
+  speechAudio.pause();
+  speechAudio.removeAttribute('src');
+  speechAudio.load();
+  speechAudio.hidden = true;
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   speaking = false;
   $('#listenLabel').textContent = '听这一句';
@@ -247,8 +262,14 @@ function stopSpeech() {
 // 朗读当前句子
 function speakSentence() {
   if (speaking) { stopSpeech(); return; }
-  if (!('speechSynthesis' in window)) {
-    showError('#audioError', '当前浏览器不支持朗读，请使用支持语音合成的浏览器。');
+  const { provider, savedAudio } = currentSpeech();
+  if (!savedAudio && provider === 'browser' && !('speechSynthesis' in window)) {
+    showError('#audioError', '这段自定义内容没有预存音频，当前浏览器也不支持设备朗读。请点击“声音”切换为曼波或自定义 TTS。');
+    return;
+  }
+  if ((provider === 'compatible' && (!settings.ttsBase || !settings.ttsModel || !settings.ttsVoice)) || (provider === 'sovits' && !settings.sovitsUrl)) {
+    openSettings();
+    toast('先填写所选语音服务的地址和模型信息。');
     return;
   }
   cancelRecording();
@@ -257,28 +278,101 @@ function speakSentence() {
   const token = ++speechToken;
   speaking = true;
   $('#listenLabel').textContent = '停止朗读';
-  const say = () => {
-    const utterance = new SpeechSynthesisUtterance(lesson.sentences[activeIndex].en);
-    utterance.lang = 'en-US';
-    utterance.rate = Number($('#speedSelect').value);
-    const voice = speechSynthesis.getVoices().find(item => item.voiceURI === settings.voiceURI);
-    if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
-    utterance.onstart = () => { if (token === speechToken) $('#playStatus').textContent = '正在朗读…'; };
-    utterance.onend = () => {
+  const finish = () => {
+    if (token !== speechToken) return;
+    if ($('#repeatSentence').checked) {
+      $('#playStatus').textContent = '稍停一下，继续这一句';
+      repeatTimer = setTimeout(say, 1200);
+    } else { stopSpeech(); }
+  };
+  const say = async () => {
+    const text = lesson.sentences[activeIndex].en;
+    if (provider === 'browser' && !savedAudio) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = Number($('#speedSelect').value);
+      const voice = speechSynthesis.getVoices().find(item => item.voiceURI === settings.voiceURI);
+      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+      utterance.onstart = () => { if (token === speechToken) $('#playStatus').textContent = '正在朗读…'; };
+      utterance.onend = finish;
+      utterance.onerror = event => {
+        if (token !== speechToken) return;
+        stopSpeech();
+        showError('#audioError', `朗读失败（${event.error}）。请在设置中选择英语声音，或检查设备是否安装了英语语音包。`);
+      };
+      speechSynthesis.speak(utterance);
+      return;
+    }
+    const cacheKey = JSON.stringify([provider, settings.ttsBase, settings.ttsModel, settings.ttsVoice, settings.sovitsUrl, text]);
+    try {
+      let audioUrl = savedAudio ? new URL(savedAudio, document.baseURI).href : speechCache.get(cacheKey);
+      if (!audioUrl) {
+        $('#playStatus').textContent = '正在生成语音，可点停止取消…';
+        speechRequest = new AbortController();
+        const result = await requestSpeech({ ...settings, ttsKey: sessionStorage.getItem('daily-speak-tts-key') || '' }, text, speechRequest.signal);
+        if (token !== speechToken) return;
+        audioUrl = typeof result === 'string' ? result : URL.createObjectURL(result);
+        speechCache.set(cacheKey, audioUrl);
+        speechRequest = undefined;
+      }
       if (token !== speechToken) return;
-      if ($('#repeatSentence').checked) {
-        $('#playStatus').textContent = '稍停一下，继续这一句';
-        repeatTimer = setTimeout(say, 1200);
-      } else { stopSpeech(); }
-    };
-    utterance.onerror = event => {
-      if (token !== speechToken) return;
+      speechAudio.onended = finish;
+      speechAudio.onplaying = () => { if (token === speechToken) $('#playStatus').textContent = '正在朗读…'; };
+      speechAudio.onerror = () => {
+        if (token !== speechToken) return;
+        speechCache.delete(cacheKey);
+        if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
+        stopSpeech();
+        showError('#audioError', savedAudio ? '内置音频未能加载，请检查网络后重试。' : '语音文件无法播放，请检查服务返回的音频，或重新生成。');
+      };
+      if (speechAudio.src !== audioUrl) speechAudio.src = audioUrl;
+      speechAudio.currentTime = 0;
+      speechAudio.playbackRate = Number($('#speedSelect').value);
+      speechAudio.hidden = false;
+      $('#playStatus').textContent = '正在加载音频…';
+      await speechAudio.play();
+    } catch (error) {
+      if (token !== speechToken || error.name === 'AbortError') return;
+      if (error.name === 'NotAllowedError') {
+        $('#playStatus').textContent = '音频已就绪，点击下方播放器开始';
+        return;
+      }
       stopSpeech();
-      showError('#audioError', `朗读失败（${event.error}）。请在设置中选择英语声音，或检查设备是否安装了英语语音包。`);
-    };
-    speechSynthesis.speak(utterance);
+      showError('#audioError', error instanceof TypeError ? '无法连接语音服务。请检查网络、服务地址和浏览器跨域权限（CORS）。' : error.message);
+    }
   };
   say();
+}
+
+// 清理语音缓存
+function clearSpeechCache() {
+  speechCache.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
+  speechCache.clear();
+}
+
+// 显示所选朗读方式
+function updateVoiceLabel() {
+  const { provider, savedAudio } = currentSpeech();
+  $('#voiceSettingsButton').textContent = `声音：${savedAudio ? '曼波 · 已存音频' : voiceLabels[provider]}`;
+  $('#voiceDisclosure').hidden = provider === 'browser' && !savedAudio;
+  $('#voiceDisclosure').textContent = savedAudio ? '曼波 AI 配音已随网站保存，播放不消耗生成次数。' : 'AI 合成配音；生成时会将当前英文发送到选定的语音服务。';
+}
+
+// 当前句子的朗读来源
+function currentSpeech() {
+  const provider = settings.ttsProvider || 'manbo';
+  const useSaved = provider === 'manbo' || (provider === 'browser' && !('speechSynthesis' in window));
+  return { provider, savedAudio: useSaved ? bundledAudio[lesson.sentences[activeIndex].en] : undefined };
+}
+
+// 切换语音设置表单
+function updateVoiceFields() {
+  const provider = $('#ttsProvider').value;
+  document.querySelectorAll('[data-voice-fields]').forEach(fieldset => {
+    fieldset.hidden = fieldset.dataset.voiceFields !== provider;
+    fieldset.disabled = fieldset.hidden;
+  });
+  $('#ttsNetworkNote').hidden = !['compatible', 'sovits'].includes(provider);
 }
 
 // 显示当前句子的录音
@@ -383,10 +477,19 @@ function populateVoices() {
 
 // 打开接口设置
 function openSettings(showAI = false) {
+  stopSpeech();
+  cancelRecording();
   $('#apiBase').value = settings.apiBase || '';
   $('#apiModel').value = settings.apiModel || '';
   $('#apiKey').value = sessionStorage.getItem('daily-speak-api-key') || '';
   $('#aiSettings').open = showAI;
+  $('#ttsProvider').value = settings.ttsProvider || 'manbo';
+  $('#ttsBase').value = settings.ttsBase || '';
+  $('#ttsModel').value = settings.ttsModel || '';
+  $('#ttsVoice').value = settings.ttsVoice || '';
+  $('#ttsKey').value = sessionStorage.getItem('daily-speak-tts-key') || '';
+  $('#sovitsUrl').value = settings.sovitsUrl || '';
+  updateVoiceFields();
   populateVoices();
   $('#settingsDialog').showModal();
 }
@@ -467,11 +570,17 @@ $('#toggleChinese').addEventListener('click', () => {
 });
 $('#saveLesson').addEventListener('click', () => { saveLesson(); toast('已收藏到练习本。'); });
 $('#settingsButton').addEventListener('click', () => openSettings());
+$('#voiceSettingsButton').addEventListener('click', () => openSettings());
+$('#ttsProvider').addEventListener('change', updateVoiceFields);
 $('#settingsForm').addEventListener('submit', event => {
   event.preventDefault();
-  settings = { ...settings, apiBase: $('#apiBase').value.trim(), apiModel: $('#apiModel').value.trim(), voiceURI: $('#voiceSelect').value };
+  stopSpeech();
+  clearSpeechCache();
+  settings = { ...settings, apiBase: $('#apiBase').value.trim(), apiModel: $('#apiModel').value.trim(), voiceURI: $('#voiceSelect').value, ttsProvider: $('#ttsProvider').value, ttsBase: $('#ttsBase').value.trim(), ttsModel: $('#ttsModel').value.trim(), ttsVoice: $('#ttsVoice').value.trim(), sovitsUrl: $('#sovitsUrl').value.trim() };
   localStorage.setItem('daily-speak-settings', JSON.stringify(settings));
   sessionStorage.setItem('daily-speak-api-key', $('#apiKey').value.trim());
+  sessionStorage.setItem('daily-speak-tts-key', $('#ttsKey').value.trim());
+  updateVoiceLabel();
   $('#settingsDialog').close();
   toast('设置已保存。');
 });
@@ -495,6 +604,7 @@ document.querySelectorAll('[data-close]').forEach(button => button.addEventListe
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog && (event.clientX < dialog.getBoundingClientRect().left || event.clientX > dialog.getBoundingClientRect().right || event.clientY < dialog.getBoundingClientRect().top || event.clientY > dialog.getBoundingClientRect().bottom)) dialog.close(); }));
 window.addEventListener('pagehide', () => {
   stopSpeech();
+  clearSpeechCache();
   cancelRecording();
   recordings.forEach(recording => URL.revokeObjectURL(recording.url));
   recordings.clear();

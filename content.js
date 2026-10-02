@@ -322,5 +322,5 @@ export function splitEnglish(text) {
 
 // 新建练习
 export function createLesson(content, source) {
-  return { ...content, id: crypto.randomUUID(), source, createdAt: new Date().toISOString(), practiced: [] };
+  return { ...content, id: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''), source, createdAt: new Date().toISOString(), practiced: [] };
 }

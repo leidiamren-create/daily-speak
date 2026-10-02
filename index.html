@@ -38,7 +38,9 @@
         <div class="player">
           <div class="player-caption"><span id="activeCount">第 1 / 4 句</span><span id="playStatus" role="status">先听一遍，再跟着说</span></div>
           <div class="player-buttons"><button class="button icon-button" id="previousSentence" aria-label="上一句"><span data-icon="previous"></span></button><button class="button listen-button" id="listenButton"><span data-icon="volume"></span><span id="listenLabel">听这一句</span></button><button class="button icon-button" id="nextSentence" aria-label="下一句"><span data-icon="next"></span></button><span class="control-divider"></span><button class="button record-button" id="recordButton"><span data-icon="mic"></span><span id="recordLabel">录音跟读</span></button></div>
-          <div class="practice-actions"><span>也可以直接开口跟读</span><button class="text-button" id="markPracticed">这句练好了</button></div>
+          <audio id="voiceAudio" class="voice-audio" controls preload="none" aria-label="AI 示范朗读" hidden></audio>
+          <div class="practice-actions"><button class="text-button" id="voiceSettingsButton">声音：曼波 · 已存音频</button><button class="text-button" id="markPracticed">这句练好了</button></div>
+          <p class="voice-disclosure" id="voiceDisclosure" hidden>AI 合成配音；播放时会将当前英文发送到选定的语音服务。</p>
           <div class="recording-result" id="recordingResult" hidden><label for="recordingAudio">我的跟读</label><audio id="recordingAudio" controls preload="metadata"></audio><a id="downloadRecording" class="text-button" download>下载</a></div>
           <p class="form-error" id="audioError" role="alert" hidden></p>
         </div>
@@ -77,7 +79,22 @@
   </dialog>
 
   <dialog id="settingsDialog" aria-labelledby="settingsTitle"><div class="dialog-heading"><div><p class="eyebrow">按你的习惯来</p><h2 id="settingsTitle">朗读与扩展设置</h2></div><button class="button icon-button" data-close="settingsDialog" aria-label="关闭设置"><span data-icon="close"></span></button></div><form id="settingsForm">
-    <label for="voiceSelect">英语朗读声音</label><select id="voiceSelect"><option value="">设备默认英语声音</option></select><p class="field-help">内置课程直接使用设备英语朗读，不需要 AI 密钥。可用声音及是否联网取决于设备。</p>
+    <label for="ttsProvider">朗读方式</label><select id="ttsProvider"><option value="manbo">曼波 · AI 配音（默认）</option><option value="browser">设备英语</option><option value="compatible">自定义 TTS 接口</option><option value="sovits">GPT-SoVITS 本地 / 自建模型</option></select>
+    <fieldset class="voice-fields" data-voice-fields="browser"><label for="voiceSelect">英语朗读声音</label><select id="voiceSelect"><option value="">设备默认英语声音</option></select><p class="field-help">直接使用设备英语朗读，无需 AI 密钥。可用声音及是否联网取决于设备。</p></fieldset>
+    <fieldset class="voice-fields" data-voice-fields="manbo" hidden disabled><p class="field-help">内置课程和示例已保存曼波音频，直接播放，不需要浏览器支持语音合成，也不消耗生成次数。</p><p class="field-help">自己输入或 AI 生成的新句子由 MiloraAPI 在线合成，无需密钥；生成时会发送当前英文。服务方标注每个 IP 每天免费生成 50 次，同一句在当前页面重复播放不重复生成。</p><a class="text-button" href="https://github.com/xmimu/manbo-tts#api-说明" target="_blank" rel="noreferrer">查看接口来源</a></fieldset>
+    <fieldset class="voice-fields" data-voice-fields="compatible" hidden disabled>
+      <label for="ttsBase">语音 API 地址</label><input id="ttsBase" type="url" placeholder="https://你的语音服务/v1" required>
+      <label for="ttsKey">语音 API Key</label><input id="ttsKey" type="password" autocomplete="off" placeholder="使用自己的语音服务密钥">
+      <label for="ttsModel">语音模型</label><input id="ttsModel" placeholder="填写服务商提供的 TTS 模型名称" required>
+      <label for="ttsVoice">音色标识</label><input id="ttsVoice" placeholder="填写服务商提供的音色名称" required>
+      <p class="field-help">支持 OpenAI 兼容的 /audio/speech 接口。语音密钥与文字 AI 分开，仅保存在此标签页的会话中；费用按你使用的服务计算。</p>
+    </fieldset>
+    <fieldset class="voice-fields" data-voice-fields="sovits" hidden disabled>
+      <label for="sovitsUrl">GPT-SoVITS 服务地址</label><input id="sovitsUrl" type="url" placeholder="http://127.0.0.1:9880" required>
+      <p class="field-help">连接已加载模型和参考音频的 api.py 服务，朗读语言设为英语。模型在你自己的电脑或服务器运行，网页不直接加载模型文件。</p>
+      <a class="text-button" href="https://github.com/RVC-Boss/GPT-SoVITS/blob/main/api.py" target="_blank" rel="noreferrer">查看服务启动说明</a>
+    </fieldset>
+    <p class="field-help" id="ttsNetworkNote" hidden>外部语音服务需允许浏览器跨域访问（CORS）。公开网页建议连接 HTTPS 服务；本地服务的访问权限由浏览器控制。</p>
     <details id="aiSettings" class="ai-settings"><summary>自定义 AI（选填）</summary><p class="field-help">想生成新内容或翻译自己的文字时再填写，不影响内置课程。</p>
     <label for="apiBase">API 地址</label><input id="apiBase" type="url" placeholder="https://你的服务商/v1"><p class="field-help">支持 OpenAI 兼容的 Chat Completions 接口，服务商需允许浏览器跨域请求。</p>
     <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" placeholder="输入你自己的密钥"><p class="field-help">密钥仅在此标签页的会话中保存，关闭标签页后清除。练习内容会发送到你填写的 API 地址。</p>

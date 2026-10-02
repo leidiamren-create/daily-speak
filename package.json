@@ -7,8 +7,9 @@
   "license": "MIT",
   "scripts": {
     "start": "node scripts/serve.mjs",
+    "start:lan": "node scripts/serve.mjs --host",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.js && node --check ai.js && node --check content.js && node --check scripts/serve.mjs"
+    "check": "node --check app.js && node --check ai.js && node --check tts.js && node --check audio.js && node --check content.js && node --check scripts/serve.mjs"
   },
   "engines": { "node": ">=20" }
 }
