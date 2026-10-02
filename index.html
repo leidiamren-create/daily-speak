@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#087f68">
+  <meta name="description" content="用自己的生活和产品练英语。中文转自然口语、导入英文、逐句朗读与录音回听，免费开源。">
+  <title>开口练 · Daily Speak</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23087f68'/%3E%3Cpath d='M18 21h28v19H31l-9 7v-7h-4z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="开口练首页"><span class="brand-mark" aria-hidden="true">d.</span><span>开口练<span class="brand-english">DAILY SPEAK</span></span></a>
+    <nav aria-label="工具"><button class="button quiet" id="libraryButton"><span data-icon="book"></span>练习本 <span class="count" id="libraryCount">0</span></button><button class="button quiet" id="settingsButton"><span data-icon="settings"></span><span>AI 设置</span></button></nav>
+  </header>
+
+  <main>
+    <div class="page-intro"><div><p class="eyebrow">从你想说的话开始</p><h1>每天一点，开口就练。</h1></div><p class="intro-note">写自己的生活，讲自己的产品。<br>听一句，说一句，慢慢变熟练。</p></div>
+    <div class="workspace">
+      <section class="composer panel" aria-labelledby="composerTitle">
+        <div class="section-heading"><span class="step">01</span><h2 id="composerTitle">今天想说点什么？</h2></div>
+        <div class="tabs" role="tablist" aria-label="内容来源">
+          <button role="tab" id="tabChinese" aria-controls="inputPanel" aria-selected="true" data-mode="chinese">写中文</button>
+          <button role="tab" id="tabEnglish" aria-controls="inputPanel" aria-selected="false" tabindex="-1" data-mode="english">导入英文</button>
+          <button role="tab" id="tabScene" aria-controls="inputPanel" aria-selected="false" tabindex="-1" data-mode="scene">AI 出题</button>
+        </div>
+        <form id="composeForm">
+          <div id="inputPanel" role="tabpanel" aria-labelledby="tabChinese">
+            <div id="sceneOptions" class="scene-options" hidden>
+              <label for="sceneSelect">练习场景</label>
+              <select id="sceneSelect"><option value="日常生活">日常生活</option><option value="外贸客户接待">外贸客户接待</option><option value="产品介绍">产品介绍</option><option value="直播带货">直播带货</option><option value="表达心情和观点">心情与观点</option></select>
+            </div>
+            <div class="input-label"><label id="draftLabel" for="draft">像聊天一样，写几句中文</label><label class="file-button" id="fileLabel" hidden><span data-icon="upload"></span>导入 .txt<input type="file" id="fileInput" accept=".txt,text/plain"></label></div>
+            <textarea id="draft" rows="6" placeholder="比如：这个充电宝挺小巧的，出门带着很方便。可以同时给两台手机充电。你平时出门会带充电宝吗？"></textarea>
+            <div class="input-meta"><span id="inputHint">不用组织得很完美，像平时说话就好。</span><span id="characterCount">0 字</span></div>
+            <label class="check-label" id="translateOption" hidden><input type="checkbox" id="translateEnglish">用 AI 添加中文对照<span class="subtle">需配置接口</span></label>
+          </div>
+          <button type="submit" class="button primary full" id="generateButton"><span data-icon="sparkles"></span><span id="generateLabel">生成口语英文</span></button>
+          <button type="button" class="button quiet full" id="cancelGenerate" hidden>取消生成</button>
+          <p class="form-error" id="composeError" role="alert" hidden></p>
+        </form>
+        <div class="sample-section"><div class="divider-label">先试一段</div><div class="sample-buttons"><button data-sample="powerbank"><span data-icon="battery"></span>介绍充电宝</button><button data-sample="daily"><span data-icon="coffee"></span>聊聊今天</button><button data-sample="trade"><span data-icon="briefcase"></span>接待客户</button></div><p class="small-note">内置示例和英文导入，无需 AI 密钥。</p></div>
+      </section>
+
+      <section class="practice panel" aria-labelledby="practiceTitle">
+        <div class="practice-heading"><div class="section-heading"><span class="step">02</span><h2 id="practiceTitle">一句一句，练到顺口</h2></div><span class="lesson-badge" id="lessonBadge">示例练习</span></div>
+        <div class="lesson-heading"><h3 id="lessonTitle">介绍你的充电宝</h3><button class="button small quiet" id="saveLesson"><span data-icon="bookmark"></span><span id="saveLabel">收藏练习</span></button></div>
+        <div class="practice-toolbar"><label class="select-inline" for="speedSelect">语速<select id="speedSelect"><option value="0.7">0.7× 慢速</option><option value="0.85" selected>0.85× 舒缓</option><option value="1">1× 正常</option></select></label><label class="check-label"><input type="checkbox" id="repeatSentence">单句循环</label><button class="text-button" id="toggleChinese" aria-pressed="false">隐藏中文</button></div>
+        <div class="sentence-list" id="sentenceList" aria-label="练习句子"></div>
+        <div class="player">
+          <div class="player-caption"><span id="activeCount">第 1 / 4 句</span><span id="playStatus" role="status">先听一遍，再跟着说</span></div>
+          <div class="player-buttons"><button class="button icon-button" id="previousSentence" aria-label="上一句"><span data-icon="previous"></span></button><button class="button listen-button" id="listenButton"><span data-icon="volume"></span><span id="listenLabel">听这一句</span></button><button class="button icon-button" id="nextSentence" aria-label="下一句"><span data-icon="next"></span></button><span class="control-divider"></span><button class="button record-button" id="recordButton"><span data-icon="mic"></span><span id="recordLabel">录音跟读</span></button></div>
+          <div class="recording-result" id="recordingResult" hidden><label for="recordingAudio">我的跟读</label><audio id="recordingAudio" controls preload="metadata"></audio><a id="downloadRecording" class="text-button" download>下载</a></div>
+          <p class="form-error" id="audioError" role="alert" hidden></p>
+        </div>
+        <div class="practice-footer"><span><span data-icon="headphones"></span>听示范 · 自己说 · 回听对比</span><span id="lessonProgress">已练 0 / 4 句</span></div>
+      </section>
+    </div>
+    <footer class="site-footer"><span>不背大段课文，先把自己的话说清楚。</span><span>开源 · MIT <span class="footer-dot">/</span>练习保存在当前浏览器</span></footer>
+  </main>
+
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle"><div class="dialog-heading"><div><p class="eyebrow">按你的习惯来</p><h2 id="settingsTitle">AI 与朗读设置</h2></div><button class="button icon-button" data-close="settingsDialog" aria-label="关闭设置"><span data-icon="close"></span></button></div><form id="settingsForm">
+    <label for="apiBase">API 地址</label><input id="apiBase" type="url" placeholder="https://你的服务商/v1"><p class="field-help">支持 OpenAI 兼容的 Chat Completions 接口，服务商需允许浏览器跨域请求。</p>
+    <label for="apiKey">API Key</label><input id="apiKey" type="password" autocomplete="off" placeholder="输入你自己的密钥"><p class="field-help">密钥仅在此标签页的会话中保存，关闭标签页后清除。练习内容会发送到你填写的 API 地址。</p>
+    <label for="apiModel">模型名称</label><input id="apiModel" placeholder="填写服务商提供的模型名称">
+    <div class="settings-divider"></div><label for="voiceSelect">英语朗读声音</label><select id="voiceSelect"><option value="">设备默认英语声音</option></select><p class="field-help">使用设备自带的英语朗读，不消耗 AI 接口额度。可用声音及是否联网取决于设备。</p>
+    <button type="submit" class="button primary full">保存设置</button>
+  </form></dialog>
+
+  <dialog id="libraryDialog" aria-labelledby="libraryTitle"><div class="dialog-heading"><div><p class="eyebrow">熟悉的内容，多说几遍</p><h2 id="libraryTitle">我的练习本</h2></div><button class="button icon-button" data-close="libraryDialog" aria-label="关闭练习本"><span data-icon="close"></span></button></div><p class="field-help">新生成和导入的内容会自动保存；录音仅供本次回听，可单独下载。</p><div id="libraryList"></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
