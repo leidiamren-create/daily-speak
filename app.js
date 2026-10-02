@@ -1,4 +1,4 @@
-import { samples, splitEnglish, createLesson } from './content.js';
+import { samples, courses, courseGroups, splitEnglish, createLesson } from './content.js';
 import { generateLesson } from './ai.js';
 
 const $ = selector => document.querySelector(selector); // 页面元素
@@ -25,7 +25,9 @@ const escapeHtml = text => text.replace(/[&<>"']/g, character => ({ '&': '&amp;'
 const storageKey = 'daily-speak-lessons'; // 练习存储键
 let library = JSON.parse(localStorage.getItem(storageKey) || '[]'); // 本地练习
 let settings = JSON.parse(localStorage.getItem('daily-speak-settings') || '{}'); // 接口与朗读偏好
-let lesson = createLesson(samples.powerbank, '示例练习'); // 当前练习
+const courseProgress = JSON.parse(localStorage.getItem('daily-speak-course-progress') || '{}'); // 课程进度
+let selectedGroup = courseGroups[0].id; // 当前课程分类
+let lesson = createCourseLesson(courses[0]); // 当前练习
 let activeIndex = 0; // 当前句子
 let inputMode = 'chinese'; // 输入方式
 const drafts = { chinese: '', english: '', scene: '' }; // 输入草稿
@@ -41,6 +43,44 @@ const recordings = new Map(); // 当前会话录音
 let toastTimer; // 提示计时
 
 document.querySelectorAll('[data-icon]').forEach(element => { element.innerHTML = icon(element.dataset.icon); });
+$('#courseGroups').innerHTML = courseGroups.map(group => `<button type="button" data-group="${group.id}" aria-pressed="${group.id === selectedGroup}">${group.title}</button>`).join('');
+$('#courseSummary').textContent = `${courses.length} 课 · ${courses.reduce((total, course) => total + course.sentences.length, 0)} 句 · 全部免费跟练`;
+
+// 载入内置课程进度
+function createCourseLesson(course) {
+  return { ...createLesson(course, '内置课程'), id: `course-${course.courseId}`, practiced: [...(courseProgress[course.courseId] || [])] };
+}
+
+// 渲染课程列表
+function renderCourses() {
+  $('#groupDescription').textContent = courseGroups.find(group => group.id === selectedGroup).detail;
+  document.querySelectorAll('[data-group]').forEach(button => button.setAttribute('aria-pressed', button.dataset.group === selectedGroup));
+  $('#courseList').innerHTML = courses.filter(course => course.groupId === selectedGroup).map(course => {
+    const practiced = (courseProgress[course.courseId] || []).length;
+    const selected = course.courseId === lesson.courseId;
+    return `<button class="course-card${selected ? ' selected' : ''}" data-course="${course.courseId}" aria-current="${selected ? 'true' : 'false'}"><span class="course-number">${String(courses.indexOf(course) + 1).padStart(2, '0')}</span><span class="course-info"><strong>${course.title}</strong><span>${course.sentences.length} 句 · ${practiced ? `已练 ${practiced} 句` : '点开就能练'}</span></span>${practiced === course.sentences.length ? `<span class="course-complete" aria-label="已练完">${icon('check')}</span>` : selected ? '<span class="course-current">正在练</span>' : ''}</button>`;
+  }).join('');
+}
+
+// 打开内置课程
+function openCourse(courseId) {
+  const course = courses.find(item => item.courseId === courseId);
+  selectedGroup = course.groupId;
+  openLesson(createCourseLesson(course));
+  if (window.innerWidth <= 760) $('.practice').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+// 保存当前句子的练习进度
+function markCurrentPracticed() {
+  if (!lesson.practiced.includes(activeIndex)) lesson.practiced.push(activeIndex);
+  if (lesson.courseId) {
+    courseProgress[lesson.courseId] = [...lesson.practiced];
+    localStorage.setItem('daily-speak-course-progress', JSON.stringify(courseProgress));
+    renderCourses();
+  }
+  if (library.some(item => item.id === lesson.id)) saveLesson();
+  renderLesson();
+}
 
 // 显示轻提示
 function toast(message) {
@@ -75,13 +115,20 @@ function saveLesson() {
 function renderLesson() {
   $('#lessonTitle').textContent = lesson.title;
   $('#lessonBadge').textContent = lesson.source;
-  $('#sentenceList').innerHTML = lesson.sentences.map((sentence, index) => `<button type="button" class="sentence-row${index === activeIndex ? ' active' : ''}" data-index="${index}" aria-current="${index === activeIndex ? 'step' : 'false'}"><span class="sentence-number">${String(index + 1).padStart(2, '0')}</span><span class="sentence-content"><span class="sentence-en" lang="en">${escapeHtml(sentence.en)}</span>${sentence.zh && !hideChinese ? `<span class="sentence-zh">${escapeHtml(sentence.zh)}</span>` : ''}</span>${lesson.practiced.includes(index) ? `<span class="sentence-check" aria-label="已练习">${icon('check')}</span>` : ''}</button>`).join('');
+  $('#lessonTip').textContent = lesson.tip || '';
+  $('#lessonTip').hidden = !lesson.tip;
+  $('#sentenceList').innerHTML = lesson.sentences.map((sentence, index) => `<button type="button" class="sentence-row${index === activeIndex ? ' active' : ''}" data-index="${index}" aria-current="${index === activeIndex ? 'step' : 'false'}"><span class="sentence-number">${String(index + 1).padStart(2, '0')}${sentence.speaker ? `<span class="speaker-label">${escapeHtml(sentence.speaker)}</span>` : ''}</span><span class="sentence-content"><span class="sentence-en" lang="en">${escapeHtml(sentence.en)}</span>${sentence.zh && !hideChinese ? `<span class="sentence-zh">${escapeHtml(sentence.zh)}</span>` : ''}</span>${lesson.practiced.includes(index) ? `<span class="sentence-check" aria-label="已练习">${icon('check')}</span>` : ''}</button>`).join('');
   $('#activeCount').textContent = `第 ${activeIndex + 1} / ${lesson.sentences.length} 句`;
   $('#lessonProgress').textContent = `已练 ${lesson.practiced.length} / ${lesson.sentences.length} 句`;
   $('#previousSentence').disabled = activeIndex === 0;
   $('#nextSentence').disabled = activeIndex === lesson.sentences.length - 1;
   $('#toggleChinese').disabled = !lesson.sentences.some(sentence => sentence.zh);
   $('#saveLabel').textContent = library.some(item => item.id === lesson.id) ? '已收藏' : '收藏练习';
+  const courseIndex = courses.findIndex(course => course.courseId === lesson.courseId);
+  $('#courseNavigation').hidden = courseIndex === -1;
+  $('#previousCourse').disabled = courseIndex <= 0;
+  $('#nextCourse').disabled = courseIndex === courses.length - 1;
+  $('#coursePosition').textContent = `第 ${courseIndex + 1} / ${courses.length} 课`;
   updateRecording();
 }
 
@@ -93,6 +140,8 @@ function openLesson(nextLesson) {
   activeIndex = 0;
   showError('#audioError', '');
   renderLesson();
+  $('#sentenceList').scrollTop = 0;
+  renderCourses();
 }
 
 // 切换句子
@@ -143,7 +192,7 @@ async function compose(event) {
   }
   const needsAI = inputMode !== 'english' || $('#translateEnglish').checked;
   if (needsAI && (!settings.apiBase || !settings.apiModel)) {
-    openSettings();
+    openSettings(true);
     toast('先填写 AI 接口和模型，再回来生成。');
     return;
   }
@@ -168,6 +217,7 @@ async function compose(event) {
     }
     openLesson(createLesson(content, inputMode === 'english' ? '英文导入' : 'AI 练习'));
     saveLesson();
+    $('#customDialog').close();
     toast(`已保存 ${lesson.sentences.length} 句，开始跟练吧。`);
     if (window.innerWidth <= 760) $('.practice').scrollIntoView({ block: 'start', behavior: 'smooth' });
   } catch (error) {
@@ -277,8 +327,6 @@ async function toggleRecording() {
     return;
   }
   const token = ++recordToken;
-  const recordingLesson = lesson;
-  const recordingIndex = activeIndex;
   const key = `${lesson.id}:${activeIndex}`;
   $('#recordButton').disabled = true;
   $('#playStatus').textContent = '等待麦克风授权…';
@@ -300,10 +348,8 @@ async function toggleRecording() {
       if (previous) URL.revokeObjectURL(previous.url);
       const extension = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
       recordings.set(key, { url: URL.createObjectURL(blob), extension });
-      if (!recordingLesson.practiced.includes(recordingIndex)) recordingLesson.practiced.push(recordingIndex);
-      if (library.some(item => item.id === recordingLesson.id)) persistLibrary();
+      markCurrentPracticed();
       $('#playStatus').textContent = '录好了，听听自己的声音';
-      renderLesson();
     };
     currentRecorder.onerror = () => {
       cancelRecording();
@@ -336,18 +382,38 @@ function populateVoices() {
 }
 
 // 打开接口设置
-function openSettings() {
+function openSettings(showAI = false) {
   $('#apiBase').value = settings.apiBase || '';
   $('#apiModel').value = settings.apiModel || '';
   $('#apiKey').value = sessionStorage.getItem('daily-speak-api-key') || '';
+  $('#aiSettings').open = showAI;
   populateVoices();
   $('#settingsDialog').showModal();
 }
 
 // 渲染本地练习本
 function renderLibrary() {
-  $('#libraryList').innerHTML = library.length ? library.map(item => `<div class="library-entry"><button class="library-open" data-open-lesson="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>${item.sentences.length} 句 · 已练 ${item.practiced.length} 句 · ${new Date(item.createdAt).toLocaleDateString('zh-CN')}</span></button><button class="button icon-button delete" data-delete-lesson="${item.id}" aria-label="删除 ${escapeHtml(item.title)}">${icon('trash')}</button></div>`).join('') : '<p class="empty-library">这里还没有练习。<br>生成一段内容，或导入你喜欢的英文吧。</p>';
+  $('#libraryList').innerHTML = library.length ? library.map(item => `<div class="library-entry"><button class="library-open" data-open-lesson="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>${item.sentences.length} 句 · 已练 ${item.practiced.length} 句 · ${new Date(item.createdAt).toLocaleDateString('zh-CN')}</span></button><button class="button icon-button delete" data-delete-lesson="${item.id}" aria-label="删除 ${escapeHtml(item.title)}">${icon('trash')}</button></div>`).join('') : '<p class="empty-library">这里还没有收藏。<br>喜欢的课程可以收藏，也可以导入自己的英文。</p>';
 }
+
+$('#courseGroups').addEventListener('click', event => {
+  const button = event.target.closest('[data-group]');
+  if (button) { selectedGroup = button.dataset.group; renderCourses(); }
+});
+$('#courseList').addEventListener('click', event => {
+  const button = event.target.closest('[data-course]');
+  if (button) openCourse(button.dataset.course);
+});
+$('#previousCourse').addEventListener('click', () => openCourse(courses[courses.findIndex(course => course.courseId === lesson.courseId) - 1].courseId));
+$('#nextCourse').addEventListener('click', () => openCourse(courses[courses.findIndex(course => course.courseId === lesson.courseId) + 1].courseId));
+$('#customButton').addEventListener('click', () => { stopSpeech(); cancelRecording(); $('#customDialog').showModal(); });
+$('#markPracticed').addEventListener('click', () => {
+  stopSpeech();
+  cancelRecording();
+  markCurrentPracticed();
+  if (activeIndex < lesson.sentences.length - 1) selectSentence(activeIndex + 1);
+  else toast(lesson.practiced.length === lesson.sentences.length ? '这课练完了，继续下一课或再复习一遍吧。' : '这句的进度已保存。');
+});
 
 document.querySelectorAll('[data-mode]').forEach(button => {
   button.addEventListener('click', () => setMode(button.dataset.mode));
@@ -376,6 +442,7 @@ $('#fileInput').addEventListener('change', async event => {
 });
 document.querySelectorAll('[data-sample]').forEach(button => button.addEventListener('click', () => {
   openLesson(createLesson(samples[button.dataset.sample], '示例练习'));
+  $('#customDialog').close();
   if (window.innerWidth <= 760) $('.practice').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }));
 $('#sentenceList').addEventListener('click', event => {
@@ -399,7 +466,7 @@ $('#toggleChinese').addEventListener('click', () => {
   renderLesson();
 });
 $('#saveLesson').addEventListener('click', () => { saveLesson(); toast('已收藏到练习本。'); });
-$('#settingsButton').addEventListener('click', openSettings);
+$('#settingsButton').addEventListener('click', () => openSettings());
 $('#settingsForm').addEventListener('submit', event => {
   event.preventDefault();
   settings = { ...settings, apiBase: $('#apiBase').value.trim(), apiModel: $('#apiModel').value.trim(), voiceURI: $('#voiceSelect').value };
@@ -413,7 +480,9 @@ $('#libraryList').addEventListener('click', event => {
   const openButton = event.target.closest('[data-open-lesson]');
   const deleteButton = event.target.closest('[data-delete-lesson]');
   if (openButton) {
-    openLesson(library.find(item => item.id === openButton.dataset.openLesson));
+    const savedLesson = library.find(item => item.id === openButton.dataset.openLesson);
+    if (savedLesson.courseId) openCourse(savedLesson.courseId);
+    else openLesson(savedLesson);
     $('#libraryDialog').close();
   }
   if (deleteButton) {
@@ -434,5 +503,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { sto
 if ('speechSynthesis' in window) speechSynthesis.addEventListener('voiceschanged', populateVoices);
 if (settings.speed) $('#speedSelect').value = settings.speed;
 populateVoices();
+renderCourses();
 renderLesson();
 $('#libraryCount').textContent = library.length;
