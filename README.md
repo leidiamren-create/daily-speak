@@ -1,6 +1,8 @@
 # 开口练 · Daily Speak
 
-打开网页就能练英语：**24 课、144 句内置中英对照**，从打招呼到日常交流、出行和外贸入门；听一句、说一句、录音回听。无需自己写内容，也无需配置 AI。
+面向英语初学者和外贸从业者，打开网页就能练英语：**24 课、144 句内置中英对照**，从打招呼到日常交流、出行和外贸入门；听一句、说一句、录音回听。无需自己写内容，也无需配置 AI。
+
+**[打开网页版](https://leidiamren-create.github.io/daily-speak/)** · [GitHub 源码](https://github.com/leidiamren-create/daily-speak)
 
 纯 HTML / CSS / JavaScript，**没有框架、没有运行依赖、没有数据库**。支持手机和电脑，MIT 开源。
 
